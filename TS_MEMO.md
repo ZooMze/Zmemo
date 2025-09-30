@@ -287,7 +287,7 @@ interface Square {
 }
 type Shape = Circle | Square
 
-// 获取圆面积
+// 获取面积
 function getArea(shape: Shape): number {
   if (shape.type === 'circle')
     return Math.PI * shape.radius ** 2
