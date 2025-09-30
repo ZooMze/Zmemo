@@ -10,13 +10,16 @@
   - [1.5 字面量推断](#15-字面量推断)
   - [1.6 非空断言操作符*后缀(!)*](#16-非空断言操作符后缀)
 - [2. 类型收窄 (Narrowing)](#2-类型收窄-narrowing)
-  - [2.1 类型守卫](#21-类型守卫)
+  - [2.1 类型守卫](#21-类型守卫-type-guards)
     - [2.1.1 typeof 操作符](#211-typeof-操作符)
     - [2.1.2 in 操作符](#212-in-操作符)
     - [2.1.3 instanceof 操作符](#213-instanceof-操作符)
-    - [2.1.4 真值收窄](#214-真值收窄)
-    - [2.1.5 等值收窄](#215-等值收窄)
-  - [2.2 控制流分析](#22-控制流分析)
+    - [2.1.4 真值收窄](#214-真值收窄-truthiness-narrowing)
+    - [2.1.5 等值收窄](#215-等值收窄-equality-narrowing)
+  - [2.2 控制流分析](#22-控制流分析-control-flow-analysis)
+  - [2.3 类型谓词](#23-类型谓词-type-predicates)
+  - [2.4 可辨别联合](#24-可辨别联合-discriminated-unions)
+  - [2.5 穷尽检查](#25-穷尽检查-exhaustiveness-checking)
 
 ---
 
@@ -77,7 +80,7 @@ const reqObj = { url: 'http://xxxx', method: 'GET'}
 handleRequest(reqObj) // Error 
 ```
 
-- 由于 [字面量推断](#15-字面量推断), `reqObj` 的 `method` 会被推断为 `string` 类型, 而`string` 类型和联合类型 `'GET' | 'POST'`没有交集 所以会报类型错误
+- 由于 [字面量推断](#15-字面量推断), `reqObj` 的 `method` 会被推断为 `string` 类型, 而 `string` 类型和联合类型 `'GET' | 'POST'` 没有交集 所以会报类型错误
 
 ### 1.6 非空断言操作符*后缀(!)*
 
@@ -94,7 +97,7 @@ function test(x?: number | null) {
 
 收窄是将类型推导为更精确类型的过程，在TypeScript中通过类型守卫、真值检查、等值比较、赋值语句和控制流分析等方式协助TypeScript进行类型推断，进而对类型进行收窄
 
-### 2.1 类型守卫
+### 2.1 类型守卫 (type guards)
 
 类型守卫是 TypeScript 类型系统的核心特性，通过运行时检查实现类型收窄，提供类型安全和智能提示 有如下几种情况进行类型收窄:
 
@@ -119,7 +122,7 @@ function printAll(strs: string | string[] | null) {
 
 #### 2.1.2 in 操作符
 
-这个例子展示了in操作符的类型收窄
+这个例子展示了 `in` 操作符的类型收窄
 
 ```ts
 type Fish = { speed: number, swim: () => string } as const
@@ -150,7 +153,7 @@ move(CrestedIbis) // >>> 朱鹮 100m/s
 
 #### 2.1.3 instanceof 操作符
 
-类似于上述in操作符 都是通过类型保护来收窄类型
+类似于上述 `in` 操作符 都是通过类型保护来收窄类型
 
 ```ts
 function getValue(x: Date | string) {
@@ -162,9 +165,9 @@ function getValue(x: Date | string) {
 }
 ```
 
-#### 2.1.4 真值收窄
+#### 2.1.4 真值收窄 (Truthiness narrowing)
 
-通过判断值的真值性（truthy/falsy）来收窄类型，将联合类型中的 `null`、`undefined`、`0`、`""`、`false` 等假值排除，只保留*真值*类型
+通过判断值的真值性（`truthy/falsy`）来收窄类型，将联合类型中的 `null`、`undefined`、`0`、`""`、`false` 等假值排除，只保留*真值*类型
 
 通过真值收窄完善上述的 [typeof](#211-typeof-操作符) 的例子
 
@@ -181,7 +184,7 @@ function printAll(strs: string | string[] | null) {
 }
 ```
 
-#### 2.1.5 等值收窄
+#### 2.1.5 等值收窄 (Equality narrowing)
 
 通过 `===`、`!==`、`==`、`!=` 等比较操作符来收窄类型，当比较两个值相等时，TypeScript 会推断出更具体的类型
 
@@ -198,6 +201,145 @@ function getPosition(x: string | number, y: string | bigInt) {
 }
 ```
 
-### 2.2 控制流分析
+### 2.2 控制流分析 (Control flow analysis)
 
-TODO
+基于可达性 `reachability` 的代码分析就叫做控制流分析 `control flow analysis`
+
+```ts
+function getSomeData(suffix: string | number, input: string) {
+  if (typeof suffix === 'number') {
+    return new Array(suffix + 1).fill('').join(" ") + input;
+  }
+  // 如果代码执行到这里类型就会被收窄 剔除number类型
+  return suffix + input // 这里会变成string 类型
+}
+```
+
+对于类型是 `number` 的 `suffix` 后半部分的代码是不可到达的, 所以后半部分的 `suffix` 就会收窄
+
+### 2.3 类型谓词 (type predicates)
+
+类型谓词是用户定义的类型守卫，通过返回 `parameterName is Type` 的布尔值来收窄类型, 即 `(value) => boolean`
+来判断是否是对应的类型:
+
+`function isString(value): value is string { return typeof value === 'string' }`
+
+```ts
+interface Fish {
+  swim(): void;
+  name: string;
+}
+
+interface Bird {
+  fly(): void;
+  name: string;
+}
+
+function isFish(pet: Fish | Bird): pet is Fish {
+  return "swim" in pet;
+}
+
+// 使用示例
+function move(pet: Fish | Bird) {
+  if (isFish(pet)) {
+    // pet 被收窄为 Fish
+    pet.swim();
+  } else {
+    // pet 被收窄为 Bird
+    pet.fly();
+  }
+}
+```
+
+### 2.4 可辨别联合 (Discriminated unions)
+
+现在有这样定义的例子:
+
+```ts
+type Shape = {
+  type: 'circle' | 'square'
+  radius?: number
+  sideLength?: number
+}
+
+// 获取圆面积
+function getArea(shape: Shape): number {
+  if (shape.type === 'square')
+    return Math.PI * shape.radius ** 2 // Error
+  else
+    return shape.sideLength ** 2 // Error
+}
+```
+
+上述代码都会报错, 即使我们通过[控制流分析](#22-控制流分析-control-flow-analysis)收窄了类型为 `circle`, 但因为 `radius` 属性是可选值, 仍然可能为 `undefined` 导致运行错误
+
+在这种情况下 可辨别联合才是最佳实践, 下面改写一下上述例子
+
+```ts
+interface Circle {
+  type: 'circle'
+  radius: number
+}
+
+interface Square {
+  type: 'square'
+  sideLength: number
+}
+type Shape = Circle | Square
+
+// 获取圆面积
+function getArea(shape: Shape): number {
+  if (shape.type === 'circle')
+    return Math.PI * shape.radius ** 2
+  else
+    return shape.sideLength ** 2 // 现在类型就被正确收窄且均可访问
+}
+```
+
+当联合类型中的每个类型，都包含了一个共同的字面量类型的属性，TypeScript 就会认为这是一个可辨别联合（discriminated union），然后可以将具体成员的类型进行收窄
+
+可辨别联合在服务端交互, 状态管理中都是非常实用的内容
+
+### 2.5 穷尽检查 (Exhaustiveness checking)
+
+穷尽检查同样是一种类型收窄, 只是将类型收窄为了一个特殊的 `never` 类型, 表示所有类型都已经被处理到了 只剩下 `never` 的状态了
+
+还是刚刚的形状例子, 假设在后续又增加了一个 `rect` 类型
+
+```ts
+// 已经定义好了 Circle | Square 新增一个Rect类型
+interface Rect {
+  type: 'rect'
+  longSideLength: number
+  shortSideLength: number
+}
+type Shape = Circle | Square | Rect
+
+function getArea(shape: Shape): number {
+  if (shape.type === 'circle')
+    return Math.PI * shape.radius ** 2
+  else
+    return shape.sideLength ** 2 
+  // 使用 if-else 结构时，TypeScript 不会进行穷尽检查，所以确实不会有编译错误。
+}
+```
+
+但是如果一开始就加上了穷尽检查 像这样（由于多状态 用 `switch` 改写一下）
+
+```ts
+function getArea(shape: Shape): number {
+  switch (shape.type) {
+    case 'circle':
+      return Math.PI * shape.radius ** 2
+    case 'square':
+      return shape.sideLength ** 2
+    default:
+      const exhaustiveCheck: never = shape
+      return exhaustiveCheck
+  }
+}
+```
+
+因为 TypeScript 的收窄特性，执行到 `default` 的时候，类型被收窄为 `Rect`, 但因为任何类型都不能赋值给 `never` 类型（除了 `never` 本身）, 这就会产生一个编译错误。
+
+通过这种方式，你就可以确保 `getArea` 函数总是穷尽了所有 `shape` 的可能性。
